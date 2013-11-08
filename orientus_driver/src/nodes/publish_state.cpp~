@@ -163,7 +163,7 @@ int main(int argc, char *argv[])
   
   //int com_port_number = 16;
   ros::NodeHandle pnh_("~");
-  pnh_.param("port", port, std::string("/dev/ttyUSB0");
+  pnh_.param("port", port, std::string("/dev/ttyUSB0"));
   //char* port = "/dev/ttyUSB0";
   
 
@@ -174,7 +174,7 @@ int main(int argc, char *argv[])
   //  exit(EXIT_FAILURE);
   //}
 
-  if (OpenComport2(port, 115200))
+  if (OpenComport2(port.c_str(), 115200))
   {
     ROS_ERROR("Error opening the com port");
     exit(EXIT_FAILURE);
