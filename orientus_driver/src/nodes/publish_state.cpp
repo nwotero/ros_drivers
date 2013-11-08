@@ -1,0 +1,207 @@
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <math.h>
+
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <unistd.h>
+#endif
+
+#include "orientus_driver/rs232.h"
+#include "orientus_driver/an_packet_protocol.h"
+#include "orientus_driver/orientus_packets.h"
+
+#include "ros/ros.h"
+#include "sensor_msgs/Imu.h"
+#include "geometry_msgs/Quaternion.h"
+
+int com_port_number;
+
+int an_packet_transmit(an_packet_t *an_packet)
+{
+	an_packet_encode(an_packet);
+	//return SendBuf(com_port_number, an_packet_pointer(an_packet), an_packet_size(an_packet));
+        return SendBuf2(an_packet_pointer(an_packet), an_packet_size(an_packet));
+}
+
+void request_packets(an_packet_t *an_packet)
+{
+  ROS_INFO("Sending Request");
+  an_packet = encode_request_packet(packet_id_quaternion_orientation_standard_deviation);
+  an_packet_transmit(an_packet);
+
+  an_packet = encode_request_packet(packet_id_acceleration);
+  an_packet_transmit(an_packet);
+
+  an_packet = encode_request_packet(packet_id_quaternion_orientation);
+  an_packet_transmit(an_packet);
+
+  an_packet = encode_request_packet(packet_id_angular_velocity);
+  an_packet_transmit(an_packet);
+
+  an_packet_free(&an_packet);
+}//end request_packets
+
+void receive_packets(an_decoder_t *an_decoder, an_packet_t *an_packet, 
+                     quaternion_orientation_standard_deviation_packet_t *quaternion_std_packet,  
+                     acceleration_packet_t *acceleration_packet,
+                     quaternion_orientation_packet_t *quaternion_packet,  
+                     angular_velocity_packet_t *angular_velocity_packet)
+{
+  int bytes_received;
+
+  //if ((bytes_received = PollComport(com_port_number, an_decoder_pointer(an_decoder), an_decoder_size(an_decoder))) > 0)
+  if ((bytes_received = PollComport2(an_decoder_pointer(an_decoder), an_decoder_size(an_decoder))) > 0)
+  {
+    //ROS_INFO("Checking Packet IDs");
+    /* increment the decode buffer length by the number of bytes received */
+    an_decoder_increment(an_decoder, bytes_received);
+	
+    /* decode all the packets in the buffer */
+    while ((an_packet = an_packet_decode(an_decoder)) != NULL)
+    {
+      //ROS_INFO("In while");
+      if (an_packet->id == packet_id_quaternion_orientation_standard_deviation) /* quaternion orientation standard deviation packet */
+      {
+        /* copy all the binary data into the typedef struct for the packet */
+	/* this allows easy access to all the different values             */
+	if(decode_quaternion_orientation_standard_deviation_packet(quaternion_std_packet, an_packet) == 0)
+	{
+	  ROS_INFO("Received quaternion orientation standard_deviation packet");
+	}//end if
+      }//end if
+
+      else if (an_packet->id == packet_id_acceleration) /* acceleration packet */
+      {
+        if(decode_acceleration_packet(acceleration_packet, an_packet) == 0)
+        {
+          ROS_INFO("Received acceleration packet");
+        }//end if
+      }//end else if
+
+      else if (an_packet->id == packet_id_quaternion_orientation) /* quaternion packet */
+      {
+        if(decode_quaternion_orientation_packet(quaternion_packet, an_packet) == 0)
+	{
+	  ROS_INFO("Received quaternion packet");
+        }//end if
+      }//end else if
+
+      else if (an_packet->id == packet_id_angular_velocity) /* angular velocity packet */
+      {
+        if(decode_angular_velocity_packet(angular_velocity_packet, an_packet) == 0)
+        {
+          ROS_INFO("Received angular velocity packet");
+        }//end if
+      }//end else if
+        
+      /* Ensure that you free the an_packet when your done with it or you will leak memory */
+      an_packet_free(&an_packet);
+
+    }//end while
+  }//end if
+}//end receive_packets
+
+void create_msg_from_packets(sensor_msgs::Imu *imu_msg, quaternion_orientation_standard_deviation_packet_t *quaternion_std_packet,
+                               acceleration_packet_t *acceleration_packet,
+                               quaternion_orientation_packet_t *quaternion_packet,
+                               angular_velocity_packet_t *angular_velocity_packet)
+{
+  geometry_msgs::Quaternion quaternion_msg;
+  float orientation_covariance[9] = {pow((quaternion_std_packet->standard_deviation[0]), 2.0), 0, 0, 
+                                     0, pow((quaternion_std_packet->standard_deviation[1]), 2.0), 0, 
+                                     0, 0, pow((quaternion_std_packet->standard_deviation[2]), 2.0)};
+  geometry_msgs::Vector3 angular_velocity;
+  /*float angular_velocity_covariance[9] = {0, 0, 0, 
+                                          0, 0, 0, 
+                                          0, 0, 0};*/
+  geometry_msgs::Vector3 linear_acceleration;
+  /*float linear_acceleration_covariance[9] = {0, 0, 0, 
+                                             0, 0, 0, 
+                                             0, 0, 0};*/
+
+  imu_msg->orientation.x = quaternion_packet->orientation[0];
+  imu_msg->orientation.y = quaternion_packet->orientation[1];
+  imu_msg->orientation.z = quaternion_packet->orientation[2];
+  imu_msg->orientation.w = quaternion_packet->orientation[3];
+  imu_msg->orientation_covariance[0] = orientation_covariance[0];
+  imu_msg->orientation_covariance[4] = orientation_covariance[4];
+  imu_msg->orientation_covariance[8] = orientation_covariance[8];
+
+  imu_msg->angular_velocity.x = angular_velocity_packet->angular_velocity[0];
+  imu_msg->angular_velocity.y = angular_velocity_packet->angular_velocity[1];
+  imu_msg->angular_velocity.z = angular_velocity_packet->angular_velocity[2];
+  //imu_msg->angular_velocity_covariance = angular_velocity_covariance;
+
+  imu_msg->linear_acceleration.x = angular_velocity_packet->angular_velocity[0];
+  imu_msg->linear_acceleration.y = angular_velocity_packet->angular_velocity[1];
+  imu_msg->linear_acceleration.z = angular_velocity_packet->angular_velocity[2];
+  //imu_msg->linear_acceleration_covariance = linear_acceleration_covariance;
+  
+}//end create_msg_from_packet
+
+int main(int argc, char *argv[])
+{
+  ros::init(argc, argv, "orientus_state_publisher");
+  ros::NodeHandle n;
+  
+  ros::Publisher imu_pub = n.advertise<sensor_msgs::Imu>("/orientus/imu", 1000);
+  ros::Rate loop_rate(100); //Must check to see if valid request rate
+
+  an_decoder_t an_decoder;
+  an_packet_t *an_packet;
+	
+  quaternion_orientation_standard_deviation_packet_t quaternion_std_packet;
+  acceleration_packet_t acceleration_packet;
+  quaternion_orientation_packet_t quaternion_packet;
+  angular_velocity_packet_t angular_velocity_packet;
+
+  std::string port;
+  
+  //int com_port_number = 16;
+  ros::NodeHandle pnh_("~");
+  pnh_.param("port", port, std::string("/dev/ttyUSB0"));
+  //char* port = "/dev/ttyUSB0";
+  
+
+/* open the com port */
+  //if (OpenComport(com_port_number, 115200))
+  //{
+  //  ROS_ERROR("Error opening the com port");
+  //  exit(EXIT_FAILURE);
+  //}
+
+  if (OpenComport2(port.c_str(), 115200))
+  {
+    ROS_ERROR("Error opening the com port");
+    exit(EXIT_FAILURE);
+  }
+
+  an_decoder_initialise(&an_decoder);
+
+  ROS_INFO("Ready to begin");
+
+  while (ros::ok())
+  {
+    sensor_msgs::Imu imu_msg;
+
+    request_packets(an_packet);
+
+    //receive_packets(com_port_number, &an_decoder, an_packet, &quaternion_std_packet, &acceleration_packet, &quaternion_packet, &angular_velocity_packet);
+    receive_packets(&an_decoder, an_packet, &quaternion_std_packet, &acceleration_packet, &quaternion_packet, &angular_velocity_packet);
+
+    create_msg_from_packets(&imu_msg, &quaternion_std_packet,&acceleration_packet,&quaternion_packet,&angular_velocity_packet);
+    
+    imu_pub.publish(imu_msg);
+
+    ros::spinOnce();
+    loop_rate.sleep();
+
+  }//end while
+
+  return 0;
+
+}//end main
