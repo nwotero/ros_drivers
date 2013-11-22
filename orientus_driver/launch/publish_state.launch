@@ -1,0 +1,5 @@
+<launch>
+    <node name="orientus_publisher" pkg="orientus_driver" type="publish_state">
+        <param name="port" type="string" value="/dev/ttyUSB0" />
+    </node>
+</launch>

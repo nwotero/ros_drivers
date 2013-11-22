@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/nickotero/groovy_workspace/wrecs/ros_drivers/orientus_driver/build/devel/setup.sh

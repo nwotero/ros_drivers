@@ -28,7 +28,6 @@ int an_packet_transmit(an_packet_t *an_packet)
 
 void request_packets(an_packet_t *an_packet)
 {
-  ROS_INFO("Sending Request");
   an_packet = encode_request_packet(packet_id_quaternion_orientation_standard_deviation);
   an_packet_transmit(an_packet);
 
@@ -156,7 +155,7 @@ int main(int argc, char *argv[])
   //Open com port to begin communication with Orientus
   if (OpenComport2(port.c_str(), 115200))
   {
-    ROS_ERROR("Error opening the com port");
+    ROS_ERROR("Error opening the com port, if permission denied, change permissions of USB port");
     exit(EXIT_FAILURE);
   }
 
